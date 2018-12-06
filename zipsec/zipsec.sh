@@ -74,9 +74,41 @@ refresh_cache() {
 
     if [[ $(( `stat -c '%Y' "${filename}" 2>/dev/null`+60*${ttl} )) -le ${TIMESTAMP} ]]; then
 	if [[ ${name} == "config/" ]]; then
-	    raw=`curl -sk -u "${SPLUNK_USER}:${SPLUNK_PASS}" "${SPLUNK_URL}/${endpoint}" 2>/dev/null`
+            includes=`grep -E "^include .*" "${IPSEC_CONF}"`
+            if [[ -n ${includes} ]]; then
+               content=`grep -vE "^include .*" "${IPSEC_CONF}"`
+               while read line; do
+                  subcontent=`cat "$( echo "${line}" | awk '{print $2}')"`
+                  content=`echo "${content}" ; echo "${subcontent}"`
+               done < <(echo "${includes}")
+            else
+               content=`cat "${IPSEC_CONF}"`
+            fi
+            connections=`echo "${content}" | grep -E "^conn .*" | grep -vE "conn (%)" | awk '{print $2}'`
+            raw="{ "
+            while read conn_name; do
+               raw+="\"${conn_name}\": { "
+               while read line; do
+                  key=`echo "${line}" | awk -F'=' '{print $1}'`
+                  val=`echo "${line}" | awk -F'=' '{print $2}'`
+                  raw+="\"${key}\":\"${val}\","
+               done < <(echo "${content}" | sed -n "/^conn ${conn_name}/,/^(conn|config) .*/p" | grep -vE "^$|^#|^conn.*")
+               raw="${raw%?}},"
+            done < <(echo "${connections}")
+            raw="${raw%?}}"
 	elif [[ ${name} =~ (stats/.*/) ]]; then
-	    raw=`curl -sk -u "${SPLUNK_USER}:${SPLUNK_PASS}" "${SPLUNK_URL}/${endpoint}" 2>/dev/null`  
+            details=`sudo ipsec statusall "${params[1]}" | grep bytes_i`
+            if [[ -n ${details} ]]; then
+               bytes_in=`echo "${details}" | awk -F" " {'print $3'}`
+               bytes_out=`echo "${details}" | awk -F" " {'print $9'}`
+               pkts_in=`echo "${details}" | awk -F" " {'print $5'} | sed s/\(//`
+               pkts_out=`echo "${details}" | awk -F" " {'print $11'} | sed s/\(//`
+               raw="{"
+               raw+="\"name\": \"${params[1]}\", \"stats\": {"
+               raw+="\"bytes\": {\"in\": \"${bytes_in}\", \"out\": \"${bytes_out}\"},"
+               raw+="\"pkts\": {\"in\": \"${pkts_in}\", \"out\": \"${pkts_out}\"} }"
+               raw+="}"
+            fi
 	fi
 	[[ -z ${raw} ]] || echo "${raw}" | jq . 2>/dev/null > "${filename}"
     fi
@@ -105,7 +137,8 @@ service() {
             res="1"
         fi
     elif [[ ${params[0]} == 'connections' ]]; then
-	res="entro aca"
+        filename=$( refresh_cache config )
+	res=`jq . ${filename}`
     fi
     echo "${res:-0}"
     return 0
@@ -113,21 +146,42 @@ service() {
 
 stats() {
     params=( ${@} )
-    if [[ ${params[0]:-indexes} =~ (indexes|indexes-extended|index-volumes) ]]; then
-	len=${#params[@]}
-	cache=$( refresh_cache "services" "data" "${params[@]:0:${len}-1}" )
-	if [[ ${?} == 0 ]]; then
-	    if [[ ${params[0]} == "indexes" && ${params[-1]} =~ (list|LIST|all|ALL) ]]; then
-		res=`jq -r ".entry[] | [.name, .author, (.content.disabled|tostring), (.content.isReady|tostring)] | join(\"|\")" ${cache} 2>/dev/null`
-	    else
-		res=`jq -r ".${params[-1]}" ${cache} 2>/dev/null`
-	    fi
-	fi
-    fi
+    filename=$( refresh_cache stats ${params[0]} )
+    [[ -n ${filename} ]] || zabbix_not_support 
+
+    prop=`printf '.%s' "${params[@]:1}" 2>/dev/null`
+    res=`jq -r ".stats${prop}" ${filename} 2>/dev/null`
     echo "${res//null}"
     return 0
 }
 
+status() {
+    params=( ${@} )
+    
+    for json in ${APP_DIR}/${APP_NAME%.*}.conf.d/*.json; do
+       attr_name=`jq -r ".name" ${json} 2>/dev/null`
+       [[ ${params[0]} == ${attr_name} ]] || continue
+       mon_hosts=`jq ".monitoring.hosts.[] | [.src, .dst, .port.[]] | join(\"|\")" ${json} 2>/dev/null`
+       [[ -n ${mon_hosts} ]] && break
+    done
+
+    if [[ -n ${mon_hosts} ]]; then
+       while read line; do
+          nc_opt=( "-z -w 1" )
+          src=`echo ${line} | awk -F'|' '{print $1}'`
+          dst=`echo ${line} | awk -F'|' '{print $2}'`
+          port=`echo ${line} | awk -F'|' '{print $3}'`
+          [[ -n ${src//null} ]] && opt[${#nc_opt[@]}]="-s ${src}"
+          nc ${nc_opt} ${dst} ${port}
+          [[ ${?} == 0 ]] && res=1 && break
+       done < <(echo "${mon_hosts}")
+    else
+
+    fi
+
+    echo "${res//null:-0}"
+    return 0
+}
 #
 #################################################################################
 
@@ -160,10 +214,10 @@ done
 
 if [[ "${SECTION}" == "service" ]]; then
     rval=$( service "${ARGS[@]}" )  
-elif [[ "${SECTION}" == "server" ]]; then
-    rval=$( server "${ARGS[@]}" )
-elif [[ "${SECTION}" == "data" ]]; then
-    rval=$( data "${ARGS[@]}" )
+elif [[ "${SECTION}" == "status" ]]; then
+    rval=$( status "${ARGS[@]}" )
+elif [[ "${SECTION}" == "stats" ]]; then
+    rval=$( stats "${ARGS[@]}" )
 else
     zabbix_not_support
 fi
