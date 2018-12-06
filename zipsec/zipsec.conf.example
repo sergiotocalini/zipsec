@@ -1,0 +1,2 @@
+IPSEC_CONF="/etc/ipsec.conf"
+CACHE_TTL="1"
