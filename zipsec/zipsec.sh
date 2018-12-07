@@ -76,43 +76,43 @@ refresh_cache() {
 	if [[ ${name} == "config/" ]]; then
             includes=`grep -E "^include .*" "${IPSEC_CONF}"`
             if [[ -n ${includes} ]]; then
-               content=`grep -vE "^include .*" "${IPSEC_CONF}"`
-               while read line; do
-                  subcontent=`cat "$( echo "${line}" | awk '{print $2}')"`
-                  content=`echo "${content}" ; echo "${subcontent}"`
-               done < <(echo "${includes}")
+		content=`grep -vE "^include .*" "${IPSEC_CONF}"`
+		while read line; do
+                    subcontent=`cat "$( echo "${line}" | awk '{print $2}')"`
+                    content=`echo "${content}" ; echo "${subcontent}"`
+		done < <(echo "${includes}")
             else
-               content=`cat "${IPSEC_CONF}"`
+		content=`cat "${IPSEC_CONF}"`
             fi
             connections=`echo "${content}" | grep -E "^conn .*" | grep -vE "conn (%)" | awk '{print $2}'`
             raw="{ "
             while read conn_name; do
-               active=0
-               raw+="\"${conn_name}\": { "
-               while read line; do
-                  key=`echo "${line}" | awk -F'=' '{print $1}'`
-                  val=`echo "${line}" | awk -F'=' '{print $2}'`
-                  raw+="\"${key}\":\"${val}\","
-                  if [[ ${key} == "left" ]]; then
-                     ip addr list | grep "${val}" > /dev/null 2>&1
-                     [[ ${?} == 0 ]] && active=1
-                  fi
-               done < <(echo "${content}" | sed -n "/^conn ${conn_name}/,/^(conn|config) .*/p" | grep -vE "^$|^#|^conn.*")
-               raw="${raw%?}, \"active\": \"${active}\"},"
+		active=0
+		raw+="\"${conn_name}\": { "
+		while read line; do
+                    key=`echo "${line}" | awk -F'=' '{print $1}'`
+                    val=`echo "${line}" | awk -F'=' '{print $2}'`
+                    raw+="\"${key}\":\"${val}\","
+                    if [[ ${key} == "left" ]]; then
+			ip addr list | grep "${val}" > /dev/null 2>&1
+			[[ ${?} == 0 ]] && active=1
+                    fi
+		done < <(echo "${content}" | sed -n "/^conn ${conn_name}/,/^(conn|config) .*/p" | grep -vE "^$|^#|^conn.*")
+		raw="${raw%?}, \"active\": \"${active}\"},"
             done < <(echo "${connections}")
             raw="${raw%?}}"
 	elif [[ ${name} =~ (stats/.*/) ]]; then
             details=`sudo ipsec statusall "${params[1]}" | grep bytes_i`
             if [[ -n ${details} ]]; then
-               bytes_in=`echo "${details}" | awk -F" " {'print $3'}`
-               bytes_out=`echo "${details}" | awk -F" " {'print $9'}`
-               pkts_in=`echo "${details}" | awk -F" " {'print $5'} | sed s/\(//`
-               pkts_out=`echo "${details}" | awk -F" " {'print $11'} | sed s/\(//`
-               raw="{"
-               raw+="\"name\": \"${params[1]}\", \"stats\": {"
-               raw+="\"bytes\": {\"in\": \"${bytes_in}\", \"out\": \"${bytes_out}\"},"
-               raw+="\"pkts\": {\"in\": \"${pkts_in}\", \"out\": \"${pkts_out}\"} }"
-               raw+="}"
+		bytes_in=`echo "${details}" | awk -F" " {'print $3'}`
+		bytes_out=`echo "${details}" | awk -F" " {'print $9'}`
+		pkts_in=`echo "${details}" | awk -F" " {'print $5'} | sed s/\(//`
+		pkts_out=`echo "${details}" | awk -F" " {'print $11'} | sed s/\(//`
+		raw="{"
+		raw+="\"name\": \"${params[1]}\", \"stats\": {"
+		raw+="\"bytes\": {\"in\": \"${bytes_in}\", \"out\": \"${bytes_out}\"},"
+		raw+="\"pkts\": {\"in\": \"${pkts_in}\", \"out\": \"${pkts_out}\"} }"
+		raw+="}"
             fi
 	fi
 	[[ -z ${raw} ]] || echo "${raw}" | jq . 2>/dev/null > "${filename}"
@@ -123,28 +123,22 @@ refresh_cache() {
 
 service() {
     params=( ${@} )
-    if [[ ${params[0]} =~ (uptime|listen) ]]; then
-	pid=`sudo lsof -Pi :${regex_match[6]:-${regex_match[2]}} -sTCP:LISTEN -t 2>/dev/null`
-	rcode="${?}"
+    if [[ ${params[0]} =~ (uptime|status) ]]; then
+	pid=`ps -ef 2>/dev/null| grep "ipsec/starter" | grep -v "grep" | awk '{print $2}'`
 	if [[ -n ${pid} ]]; then
 	    if [[ ${params[0]} == 'uptime' ]]; then
 		res=`sudo ps -p ${pid} -o etimes -h 2>/dev/null | awk '{$1=$1};1'`
-	    elif [[ ${params[0]} == 'listen' ]]; then
-		[[ ${rcode} == 0 && -n ${pid} ]] && res=1
+	    elif [[ ${params[0]} == 'status' ]]; then
+		res=1
 	    fi
 	fi
     elif [[ ${params[0]} == 'version' ]]; then
-	res=$( server 'info' 'entry[0].content.version' )
-    elif [[ ${params[0]} == 'status' ]]; then
-        res=$( server 'info' 'entry[0].content.version' )
-        if ! [[ -z ${res} || ${res} == "0" ]]; then
-            res="1"
-        fi
+	res=`ipsec version 2>/dev/null | head -1 | awk -F'/' '{print $1}' | sed 's:Linux ::'`
     elif [[ ${params[0]} == 'connections' ]]; then
         filename=$( refresh_cache config )
         while read conn_name; do
-           [[ -n ${conn_name} ]] || continue
-           res[${#res[@]}]=$( conn_info "${conn_name}" )
+            [[ -n ${conn_name} ]] || continue
+            res[${#res[@]}]=$( conn_info "${conn_name}" )
         done < <(jq -r "keys[]" ${filename} 2>/dev/null)
     fi
     printf '%s\n' "${res[@]}"
@@ -158,12 +152,11 @@ conn_info() {
 
     res="${params[0]}"
     if [[ ${#params[@]} > 1 ]]; then
-      props=`printf '.%s, ' "${params[@]:1}" 2>/dev/null`
+	props=`printf '.%s, ' "${params[@]:1}" 2>/dev/null`
     else
-      props=".name, .active, .type, .auto, .lifetime, .left, .leftsubnet, .right, .rightsubnet"
+	props=".name, .active, .type, .auto, .lifetime, .left, .leftsubnet, .right, .rightsubnet"
     fi
     res+=`jq -r ".\"${params[0]}\" | [ ${props} ] | join(\"|\")" "${filename}" 2>/dev/null`
-
     echo "${res}"
     return 0
 }
@@ -184,39 +177,39 @@ conn_status() {
     params=( ${@} )
     
     for json in ${APP_DIR}/${APP_NAME%.*}.conf.d/*.json; do
-       attr_name=`jq -r ".name" ${json} 2>/dev/null`
-       [[ ${params[0]} == ${attr_name} ]] || continue
-       mon_cmds=`jq -r ".monitoring.commands[]" ${json} 2>/dev/null`
-       [[ -n ${mon_cmds} ]] && break
+	attr_name=`jq -r ".name" ${json} 2>/dev/null`
+	[[ ${params[0]} == ${attr_name} ]] || continue
+	mon_cmds=`jq -r ".monitoring.commands[]" ${json} 2>/dev/null`
+	[[ -n ${mon_cmds} ]] && break
     done
 
     if [[ -n ${mon_cmds} ]]; then
-       while read line; do
-          output=`${line} 2>/dev/null`
-          [[ ${?} == 0 ]] && res=1 && break
-       done < <(echo "${mon_cmds}")
+	while read line; do
+            output=`${line} 2>/dev/null`
+            [[ ${?} == 0 ]] && res=1 && break
+	done < <(echo "${mon_cmds}")
     fi
 
     if [[ ${res} != 1 ]]; then
-       filename=$( refresh_cache config )
-       json=`jq -r ".\"${params[0]}\"" "${filename}" 2>/dev/null`
-       if [[ -n ${json} ]]; then
-          right=`echo "${json}" | jq -r ".right" 2>/dev/null`
-          left=`echo "${json}" | jq -r ".left" 2>/dev/null`
-          if [[ -n ${right//null} && -n ${left//null} ]]; then
-             output=`sudo ip xfrm state`
-             echo "${output}" | grep -E "src ${left} dst ${right}" > /dev/null 2>&1
-             src_dst="${?}"
-             echo "${output}" | grep -E "src ${right} dst ${left}" > /dev/null 2>&1
-             dst_src="${?}"
-             [[ ${src_dst} == 0 && ${dst_src} == 0 ]] && res=1
-          fi
-       fi
+	filename=$( refresh_cache config )
+	json=`jq -r ".\"${params[0]}\"" "${filename}" 2>/dev/null`
+	if [[ -n ${json} ]]; then
+            right=`echo "${json}" | jq -r ".right" 2>/dev/null`
+            left=`echo "${json}" | jq -r ".left" 2>/dev/null`
+            if [[ -n ${right//null} && -n ${left//null} ]]; then
+		output=`sudo ip xfrm state`
+		echo "${output}" | grep -E "src ${left} dst ${right}" > /dev/null 2>&1
+		src_dst="${?}"
+		echo "${output}" | grep -E "src ${right} dst ${left}" > /dev/null 2>&1
+		dst_src="${?}"
+		[[ ${src_dst} == 0 && ${dst_src} == 0 ]] && res=1
+            fi
+	fi
     fi
 
     if [[ ${res} != 1 ]]; then
-       ipsec statusall "${params[0]}" | grep -e "INSTALLED" > /dev/null 2>&1
-       [[ ${?} == 0 ]] && res=1
+	ipsec statusall "${params[0]}" | grep -e "INSTALLED" > /dev/null 2>&1
+	[[ ${?} == 0 ]] && res=1
     fi
 
     echo "${res//null/:-0}"
@@ -256,9 +249,11 @@ if [[ "${SECTION}" == "service" ]]; then
     rval=$( service "${ARGS[@]}" )  
 elif [[ "${SECTION}" == "conn" ]]; then
     if [[ ${ARGS[0]} == "status" ]]; then
-       rval=$( conn_status "${ARGS[@]:1}" )
+	rval=$( conn_status "${ARGS[@]:1}" )
     elif [[ ${ARGS[0]} == "stats" ]]; then
-       rval=$( conn_stats "${ARGS[@]:1}" )
+	rval=$( conn_stats "${ARGS[@]:1}" )
+    elif [[ ${ARGS[0]} == "info" ]]; then
+	rval=$( conn_info "${ARGS[@]:1}" )
     fi
 else
     zabbix_not_support
