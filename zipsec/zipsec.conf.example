@@ -1,2 +1,3 @@
 IPSEC_CONF="/etc/ipsec.conf"
+CACHE_DIR="/tmp/zipsec"
 CACHE_TTL="1"
