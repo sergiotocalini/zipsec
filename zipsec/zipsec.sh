@@ -146,6 +146,16 @@ service() {
     return 0
 }
 
+conn_config() {
+    params=( ${@} )
+    filename=$( refresh_cache config )
+    [[ -n ${filename} ]] || zabbix_not_support
+
+    res=`jq -r ".\"${params[0]}\" | .name=\"${params[0]}\"" "${filename}" 2>/dev/null`
+    echo "${res}"
+    return 0
+}
+
 conn_info() {
     params=( ${@} )
     filename=$( refresh_cache config )
@@ -255,6 +265,8 @@ elif [[ "${SECTION}" == "conn" ]]; then
 	rval=$( conn_stats "${ARGS[@]:1}" )
     elif [[ ${ARGS[0]} == "info" ]]; then
 	rval=$( conn_info "${ARGS[@]:1}" )
+    elif [[ ${ARGS[0]} == "config" ]]; then
+	rval=$( conn_config "${ARGS[@]:1}" )
     fi
 else
     zabbix_not_support
