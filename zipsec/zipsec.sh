@@ -97,7 +97,7 @@ refresh_cache() {
 			ip addr list | grep "${val}" > /dev/null 2>&1
 			[[ ${?} == 0 ]] && active=1
                     fi
-		done < <(echo "${content}" | sed -n "/^conn ${conn_name}/,/^(conn|config) .*/p" | grep -vE "^$|^#|^conn.*")
+		done < <(echo "${content}" | sed -nE "/^conn ${conn_name}/,/^(conn|config) .*/p" | grep -vE "^$|^#|^conn.*")
 		raw="${raw%?}, \"active\": \"${active}\"},"
             done < <(echo "${connections}")
             raw="${raw%?}}"
@@ -156,7 +156,7 @@ conn_info() {
     else
         props=".name,.active,.type,.auto,.lifetime,.left,.leftsubnet,.right,.rightsubnet"
     fi
-    res+=`jq -r ".\"${params[0]}\" | [ ${props//.name/\"${params[0]}\"} ] | join(\"|\")" "${filename}" 2>/dev/null`
+    res=`jq -r ".\"${params[0]}\" | [ ${props//.name/\"${params[0]}\"} ] | join(\"|\")" "${filename}" 2>/dev/null`
     echo "${res}"
     return 0
 }
