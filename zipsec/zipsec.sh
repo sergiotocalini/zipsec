@@ -94,8 +94,9 @@ refresh_cache() {
                     val=`echo "${line}" | awk -F'=' '{print $2}'`
                     raw+="\"${key}\":\"${val}\","
                     if [[ ${key} == "left" ]]; then
+			service_status=$( service status )
 			ip addr list | grep "${val}" > /dev/null 2>&1
-			[[ ${?} == 0 ]] && active=1
+			[[ ${?} == 0 && ${service_status} == 1 ]] && active=1
                     fi
 		done < <(echo "${content}" | sed -nE "/^conn ${conn_name}/,/^(conn|config) .*/p" | grep -vE "^$|^#|^conn.*")
 		raw="${raw%?}, \"active\": \"${active}\"},"
