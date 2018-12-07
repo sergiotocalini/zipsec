@@ -15,6 +15,7 @@ if [[ -f "${SCRIPT_CONFIG}" ]]; then
 fi
 
 cp -rpv "${SOURCE_DIR}/zipsec/zipsec.sh"             "${PREFIX_DIR}/"
+cp -rpv "${SOURCE_DIR}/zipsec/zipsec.conf.d"         "${PREFIX_DIR}/"
 cp -rpv "${SOURCE_DIR}/zipsec/zipsec.conf.example"   "${SCRIPT_CONFIG}"
 cp -rpv "${SOURCE_DIR}/zipsec/zabbix_agentd.conf"    "${ZABBIX_DIR}/zabbix_agentd.d/zipsec.conf"
 
