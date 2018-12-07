@@ -150,13 +150,12 @@ conn_info() {
     filename=$( refresh_cache config )
     [[ -n ${filename} ]] || zabbix_not_support
 
-    res="${params[0]}"
     if [[ ${#params[@]} > 1 ]]; then
 	props=`printf '.%s,' "${params[@]:1}" 2>/dev/null`
     else
 	props=".name,.active,.type,.auto,.lifetime,.left,.leftsubnet,.right,.rightsubnet,"
     fi
-    res+=`jq -r ".\"${params[0]}\" | [ ${props%?} ] | join(\"|\")" "${filename}" 2>/dev/null`
+    res+=`jq -r ".\"${params[0]}\" | [ ${props%?//.name/${params[0]}} ] | join(\"|\")" "${filename}" 2>/dev/null`
     echo "${res}"
     return 0
 }
