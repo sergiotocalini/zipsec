@@ -87,13 +87,18 @@ refresh_cache() {
             connections=`echo "${content}" | grep -E "^conn .*" | grep -vE "conn (%)" | awk '{print $2}'`
             raw="{ "
             while read conn_name; do
+               active=0
                raw+="\"${conn_name}\": { "
                while read line; do
                   key=`echo "${line}" | awk -F'=' '{print $1}'`
                   val=`echo "${line}" | awk -F'=' '{print $2}'`
                   raw+="\"${key}\":\"${val}\","
+                  if [[ ${key} == "left" ]]; then
+                     ip addr list | grep "${val}" > /dev/null 2>&1
+                     [[ ${?} == 0 ]] && active=1
+                  fi
                done < <(echo "${content}" | sed -n "/^conn ${conn_name}/,/^(conn|config) .*/p" | grep -vE "^$|^#|^conn.*")
-               raw="${raw%?}},"
+               raw="${raw%?}, \"active\": \"${active}\"},"
             done < <(echo "${connections}")
             raw="${raw%?}}"
 	elif [[ ${name} =~ (stats/.*/) ]]; then
@@ -118,7 +123,6 @@ refresh_cache() {
 
 service() {
     params=( ${@} )
-    
     if [[ ${params[0]} =~ (uptime|listen) ]]; then
 	pid=`sudo lsof -Pi :${regex_match[6]:-${regex_match[2]}} -sTCP:LISTEN -t 2>/dev/null`
 	rcode="${?}"
@@ -138,48 +142,84 @@ service() {
         fi
     elif [[ ${params[0]} == 'connections' ]]; then
         filename=$( refresh_cache config )
-	res=`jq . ${filename}`
+        while read conn_name; do
+           [[ -n ${conn_name} ]] || continue
+           res[${#res[@]}]=$( conn_info "${conn_name}" )
+        done < <(jq -r "keys[]" ${filename} 2>/dev/null)
     fi
-    echo "${res:-0}"
+    printf '%s\n' "${res[@]}"
     return 0
 }
 
-stats() {
+conn_info() {
+    params=( ${@} )
+    filename=$( refresh_cache config )
+    [[ -n ${filename} ]] || zabbix_not_support
+
+    res="${params[0]}"
+    if [[ ${#params[@]} > 1 ]]; then
+      props=`printf '.%s, ' "${params[@]:1}" 2>/dev/null`
+    else
+      props=".name, .active, .type, .auto, .lifetime, .left, .leftsubnet, .right, .rightsubnet"
+    fi
+    res+=`jq -r ".\"${params[0]}\" | [ ${props} ] | join(\"|\")" "${filename}" 2>/dev/null`
+
+    echo "${res}"
+    return 0
+}
+
+conn_stats() {
     params=( ${@} )
     filename=$( refresh_cache stats ${params[0]} )
     [[ -n ${filename} ]] || zabbix_not_support 
 
-    prop=`printf '.%s' "${params[@]:1}" 2>/dev/null`
-    res=`jq -r ".stats${prop}" ${filename} 2>/dev/null`
+    prop=`printf '%s.' "${params[@]:1}" 2>/dev/null`
+    [[ -n ${prop%?} ]] && prop=".stats.${prop%?}"
+    res=`jq -r "${prop}" ${filename} 2>/dev/null`
     echo "${res//null}"
     return 0
 }
 
-status() {
+conn_status() {
     params=( ${@} )
     
     for json in ${APP_DIR}/${APP_NAME%.*}.conf.d/*.json; do
        attr_name=`jq -r ".name" ${json} 2>/dev/null`
        [[ ${params[0]} == ${attr_name} ]] || continue
-       mon_hosts=`jq ".monitoring.hosts.[] | [.src, .dst, .port.[]] | join(\"|\")" ${json} 2>/dev/null`
-       [[ -n ${mon_hosts} ]] && break
+       mon_cmds=`jq -r ".monitoring.commands[]" ${json} 2>/dev/null`
+       [[ -n ${mon_cmds} ]] && break
     done
 
-    if [[ -n ${mon_hosts} ]]; then
+    if [[ -n ${mon_cmds} ]]; then
        while read line; do
-          nc_opt=( "-z -w 1" )
-          src=`echo ${line} | awk -F'|' '{print $1}'`
-          dst=`echo ${line} | awk -F'|' '{print $2}'`
-          port=`echo ${line} | awk -F'|' '{print $3}'`
-          [[ -n ${src//null} ]] && opt[${#nc_opt[@]}]="-s ${src}"
-          nc ${nc_opt} ${dst} ${port}
+          output=`${line} 2>/dev/null`
           [[ ${?} == 0 ]] && res=1 && break
-       done < <(echo "${mon_hosts}")
-    else
-
+       done < <(echo "${mon_cmds}")
     fi
 
-    echo "${res//null:-0}"
+    if [[ ${res} != 1 ]]; then
+       filename=$( refresh_cache config )
+       json=`jq -r ".\"${params[0]}\"" "${filename}" 2>/dev/null`
+       if [[ -n ${json} ]]; then
+          right=`echo "${json}" | jq -r ".right" 2>/dev/null`
+          left=`echo "${json}" | jq -r ".left" 2>/dev/null`
+          if [[ -n ${right//null} && -n ${left//null} ]]; then
+             output=`sudo ip xfrm state`
+             echo "${output}" | grep -E "src ${left} dst ${right}" > /dev/null 2>&1
+             src_dst="${?}"
+             echo "${output}" | grep -E "src ${right} dst ${left}" > /dev/null 2>&1
+             dst_src="${?}"
+             [[ ${src_dst} == 0 && ${dst_src} == 0 ]] && res=1
+          fi
+       fi
+    fi
+
+    if [[ ${res} != 1 ]]; then
+       ipsec statusall "${params[0]}" | grep -e "INSTALLED" > /dev/null 2>&1
+       [[ ${?} == 0 ]] && res=1
+    fi
+
+    echo "${res//null/:-0}"
     return 0
 }
 #
@@ -214,10 +254,12 @@ done
 
 if [[ "${SECTION}" == "service" ]]; then
     rval=$( service "${ARGS[@]}" )  
-elif [[ "${SECTION}" == "status" ]]; then
-    rval=$( status "${ARGS[@]}" )
-elif [[ "${SECTION}" == "stats" ]]; then
-    rval=$( stats "${ARGS[@]}" )
+elif [[ "${SECTION}" == "conn" ]]; then
+    if [[ ${ARGS[0]} == "status" ]]; then
+       rval=$( conn_status "${ARGS[@]:1}" )
+    elif [[ ${ARGS[0]} == "stats" ]]; then
+       rval=$( conn_stats "${ARGS[@]:1}" )
+    fi
 else
     zabbix_not_support
 fi
