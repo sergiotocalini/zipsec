@@ -3,7 +3,7 @@ SOURCE_DIR=$(dirname $0)
 ZABBIX_DIR=/etc/zabbix
 PREFIX_DIR="${ZABBIX_DIR}/scripts/agentd/zipsec"
 
-IPSEC_CONF="${1:-http://localhost:8089/etc/ipsec.conf}"
+IPSEC_CONF="${1:-/etc/ipsec.conf}"
 CACHE_DIR="${4:-${PREFIX_DIR}/tmp}"
 CACHE_TTL="${5:-5}"
 
