@@ -152,11 +152,11 @@ conn_info() {
 
     res="${params[0]}"
     if [[ ${#params[@]} > 1 ]]; then
-	props=`printf '.%s, ' "${params[@]:1}" 2>/dev/null`
+	props=`printf '.%s,' "${params[@]:1}" 2>/dev/null`
     else
-	props=".name, .active, .type, .auto, .lifetime, .left, .leftsubnet, .right, .rightsubnet"
+	props=".name,.active,.type,.auto,.lifetime,.left,.leftsubnet,.right,.rightsubnet,"
     fi
-    res+=`jq -r ".\"${params[0]}\" | [ ${props} ] | join(\"|\")" "${filename}" 2>/dev/null`
+    res+=`jq -r ".\"${params[0]}\" | [ ${props%?} ] | join(\"|\")" "${filename}" 2>/dev/null`
     echo "${res}"
     return 0
 }
