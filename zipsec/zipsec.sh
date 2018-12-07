@@ -151,11 +151,12 @@ conn_info() {
     [[ -n ${filename} ]] || zabbix_not_support
 
     if [[ ${#params[@]} > 1 ]]; then
-	props=`printf '.%s,' "${params[@]:1}" 2>/dev/null`
+        props=`printf '.%s,' "${params[@]:1}" 2>/dev/null`
+        props="${props%?}"
     else
-	props=".name,.active,.type,.auto,.lifetime,.left,.leftsubnet,.right,.rightsubnet,"
+        props=".name,.active,.type,.auto,.lifetime,.left,.leftsubnet,.right,.rightsubnet"
     fi
-    res+=`jq -r ".\"${params[0]}\" | [ ${props%?//.name/${params[0]}} ] | join(\"|\")" "${filename}" 2>/dev/null`
+    res+=`jq -r ".\"${params[0]}\" | [ ${props//.name/\"${params[0]}\"} ] | join(\"|\")" "${filename}" 2>/dev/null`
     echo "${res}"
     return 0
 }
