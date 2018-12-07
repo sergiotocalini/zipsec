@@ -103,7 +103,7 @@ refresh_cache() {
             done < <(echo "${connections}")
             raw="${raw%?}}"
 	elif [[ ${name} =~ (stats/.*/) ]]; then
-            details=`sudo ipsec statusall "${params[1]}" | grep bytes_i`
+            details=`sudo ipsec statusall "${params[1]}" 2>/dev/null | grep bytes_i`
             if [[ -n ${details} ]]; then
 		bytes_in=`echo "${details}" | awk -F" " {'print $3'}`
 		bytes_out=`echo "${details}" | awk -F" " {'print $9'}`
@@ -209,7 +209,7 @@ conn_status() {
     fi
 
     if [[ ${res} != 1 ]]; then
-	ipsec statusall "${params[0]}" | grep -e "INSTALLED" > /dev/null 2>&1
+	ipsec statusall "${params[0]}" 2>/dev/null | grep -e "INSTALLED" > /dev/null 2>&1
 	[[ ${?} == 0 ]] && res=1
     fi
 
