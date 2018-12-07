@@ -74,7 +74,7 @@ refresh_cache() {
 
     if [[ $(( `stat -c '%Y' "${filename}" 2>/dev/null`+60*${ttl} )) -le ${TIMESTAMP} ]]; then
 	if [[ ${name} == "config/" ]]; then
-            includes=`grep -E "^include .*" "${IPSEC_CONF}"`
+            includes=`grep -E "^include .*" "${IPSEC_CONF}" 2>/dev/null`
             if [[ -n ${includes} ]]; then
 		content=`grep -vE "^include .*" "${IPSEC_CONF}"`
 		while read line; do
@@ -82,7 +82,7 @@ refresh_cache() {
                     content=`echo "${content}" ; echo "${subcontent}"`
 		done < <(echo "${includes}")
             else
-		content=`cat "${IPSEC_CONF}"`
+		content=`cat "${IPSEC_CONF}" 2>/dev/null`
             fi
             connections=`echo "${content}" | grep -E "^conn .*" | grep -vE "conn (%)" | awk '{print $2}'`
             raw="{ "
