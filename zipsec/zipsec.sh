@@ -111,8 +111,8 @@ refresh_cache() {
 		pkts_out=`echo "${details}" | awk -F" " {'print $11'} | sed s/\(//`
 		raw="{"
 		raw+="\"name\": \"${params[1]}\", \"stats\": {"
-		raw+="\"bytes\": {\"in\": \"${bytes_in}\", \"out\": \"${bytes_out}\"},"
-		raw+="\"pkts\": {\"in\": \"${pkts_in}\", \"out\": \"${pkts_out}\"} }"
+		raw+="\"bytes\": {\"in\": \"${bytes_in:-0}\", \"out\": \"${bytes_out:-0}\"},"
+		raw+="\"pkts\": {\"in\": \"${pkts_in:-0}\", \"out\": \"${pkts_out:-0}\"} }"
 		raw+="}"
             fi
 	fi
